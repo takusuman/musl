@@ -78,6 +78,8 @@ LDSO_PATHNAME = $(syslibdir)/ld-musl-$(ARCH)$(SUBARCH).so.1
 -include config.mak
 -include $(srcdir)/arch/$(ARCH)/arch.mak
 
+obj/ldso/dlstart.lo: CFLAGS_ALL += -fno-lto
+
 ifeq ($(ARCH),)
 
 all:
@@ -127,7 +129,7 @@ NOSSP_OBJS = $(CRT_OBJS) $(LDSO_OBJS) $(filter \
 	, $(LIBC_OBJS))
 $(NOSSP_OBJS) $(NOSSP_OBJS:%.o=%.lo): CFLAGS_ALL += $(CFLAGS_NOSSP)
 
-$(CRT_OBJS): CFLAGS_ALL += -DCRT
+$(CRT_OBJS): CFLAGS_ALL += -DCRT -fno-lto
 
 $(LOBJS) $(LDSO_OBJS): CFLAGS_ALL += -fPIC
 
