@@ -23,6 +23,9 @@ BASE_GLOBS = $(addsuffix /*.c,$(SRC_DIRS))
 ARCH_GLOBS = $(addsuffix /$(ARCH)/*.[csS],$(SRC_DIRS))
 BASE_SRCS = $(sort $(wildcard $(BASE_GLOBS)))
 ARCH_SRCS = $(sort $(wildcard $(ARCH_GLOBS)))
+ifneq (mallocng,$(MALLOC_DIR))
+MALLOC_OBJS = $(sort $(wildcard $(srcdir)/src/malloc/$(MALLOC_DIR)/*.o))
+endif
 BASE_OBJS = $(patsubst $(srcdir)/%,%.o,$(basename $(BASE_SRCS)))
 ARCH_OBJS = $(patsubst $(srcdir)/%,%.o,$(basename $(ARCH_SRCS)))
 REPLACED_OBJS = $(sort $(subst /$(ARCH)/,/,$(ARCH_OBJS)))
@@ -32,8 +35,8 @@ LIBC_OBJS = $(filter obj/src/%,$(ALL_OBJS)) $(filter obj/compat/%,$(ALL_OBJS))
 LDSO_OBJS = $(filter obj/ldso/%,$(ALL_OBJS:%.o=%.lo))
 CRT_OBJS = $(filter obj/crt/%,$(ALL_OBJS))
 
-AOBJS = $(LIBC_OBJS)
-LOBJS = $(LIBC_OBJS:.o=.lo)
+AOBJS = $(LIBC_OBJS) $(MALLOC_OBJS)
+LOBJS = $(LIBC_OBJS:.o=.lo) $(MALLOC_OBJS)
 GENH = obj/include/bits/alltypes.h obj/include/bits/syscall.h
 GENH_INT = obj/src/internal/version.h
 IMPH = $(addprefix $(srcdir)/, src/internal/stdio_impl.h src/internal/pthread_impl.h src/internal/locale_impl.h src/internal/libc.h)
@@ -133,6 +136,11 @@ $(CRT_OBJS): CFLAGS_ALL += -DCRT -fno-lto
 
 $(LOBJS) $(LDSO_OBJS): CFLAGS_ALL += -fPIC
 
+ifneq (mallocng,$(MALLOC_DIR))
+obj/src/malloc/calloc.lo: CFLAGS_ALL += -DLIBC_CALLOC_EXTERNAL
+obj/src/malloc/libc_calloc.lo: CFLAGS_ALL += -DLIBC_CALLOC_EXTERNAL
+endif
+
 CC_CMD = $(CC) $(CFLAGS_ALL) -c -o $@ $<
 
 # Choose invocation of assembler to be used
@@ -140,6 +148,12 @@ ifeq ($(ADD_CFI),yes)
 	AS_CMD = LC_ALL=C awk -f $(srcdir)/tools/add-cfi.common.awk -f $(srcdir)/tools/add-cfi.$(ARCH).awk $< | $(CC) $(CFLAGS_ALL) -x assembler -c -o $@ -
 else
 	AS_CMD = $(CC_CMD)
+endif
+
+ifneq (mallocng,$(MALLOC_DIR))
+$(EXTRA_OBJ): $(GENH) $(IMPH)
+	$(CC) -I$(srcdir)/mimalloc/include $(CFLAGS_ALL) -std=gnu11 -fPIC -O3 -DNDEBUG -fvisibility=hidden -isystem `$(CC) -print-resource-dir`/include -c -o $(EXTRA_OBJ) $(srcdir)/mimalloc/src/mimalloc.c
+	sh $(srcdir)/mimalloc-verify-syms.sh $(EXTRA_OBJ)
 endif
 
 obj/%.o: $(srcdir)/%.s
@@ -160,11 +174,11 @@ obj/%.lo: $(srcdir)/%.S
 obj/%.lo: $(srcdir)/%.c $(GENH) $(IMPH)
 	$(CC_CMD)
 
-lib/libc.so: $(LOBJS) $(LDSO_OBJS)
+lib/libc.so: $(LOBJS) $(LDSO_OBJS) $(EXTRA_OBJ)
 	$(CC) $(CFLAGS_ALL) $(LDFLAGS_ALL) -nostdlib -shared \
 	-Wl,-e,_dlstart -o $@ $(LOBJS) $(LDSO_OBJS) $(LIBCC)
 
-lib/libc.a: $(AOBJS)
+lib/libc.a: $(AOBJS) $(EXTRA_OBJ)
 	rm -f $@
 	$(AR) rc $@ $(AOBJS)
 	$(RANLIB) $@
